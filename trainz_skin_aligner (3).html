@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trainz Skin Aligner</title>
+<style>
+:root{--bg:#15171b;--card:#1f2329;--line:#323944;--tx:#e8eaed;--mut:#9aa3af;--acc:#f2b01e;--ok:#38d27a;--bad:#ff6b6b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:10px;max-width:900px;margin-inline:auto}
+h1{font-size:19px;margin:4px 0 2px}
+.sub{color:var(--mut);font-size:13px;margin:0 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px}
+.card h2{font-size:15px;margin:0 0 8px}
+label{display:block;font-size:13px;color:var(--mut);margin:6px 0 2px}
+input,select,button{font:inherit;color:var(--tx);background:#12151a;border:1px solid var(--line);border-radius:6px;padding:8px;min-height:40px}
+input[type=number]{width:100%}
+input[type=file]{width:100%}
+input[type=range]{width:100%;padding:0}
+select{width:100%}
+button{cursor:pointer;background:#2a3038}
+button.pri{background:var(--acc);color:#1a1405;border-color:var(--acc);font-weight:700}
+button:disabled{opacity:.4}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>*{flex:1 1 90px}
+.chk{display:flex;align-items:center;gap:8px;margin-top:8px;color:var(--tx);font-size:14px}
+.chk input{width:20px;height:20px;min-height:0}
+#stage{position:relative;overflow:auto;background:#0d0f12;border:1px solid var(--line);border-radius:8px;max-height:62vh;touch-action:pan-x pan-y pinch-zoom}
+#wrap{position:relative;margin:0}
+#wrap canvas{display:block;width:100%;height:auto}
+#ov{position:absolute;left:0;top:0}
+#readout{font-variant-numeric:tabular-nums;color:var(--acc);min-height:22px;font-size:14px;margin-top:6px}
+.det{font-variant-numeric:tabular-nums;font-size:14px}
+.det b{color:var(--ok)}
+.warn{color:var(--bad);font-size:13px}
+.hint{color:var(--mut);font-size:12.5px;margin-top:6px}
+.nudge{display:flex;gap:6px;margin-top:8px}
+.nudge button{flex:1;padding:6px}
+.edge{margin-top:10px;padding-top:6px;border-top:1px dashed var(--line)}
+</style>
+</head>
+<body>
+<h1>Trainz Skin Aligner</h1>
+<p class="sub">Pas-kan garis putih kabin dan mesin dengan grid persen. Semua jalan di HP, tanpa internet.</p>
+
+<div class="card">
+  <h2>1. Buka skin</h2>
+  <input type="file" id="file" accept="image/*">
+  <label for="preset">Tata letak</label>
+  <select id="preset">
+    <option value="atlas2048">Atlas skin 2 (panel atas + bawah, 2048×2048)</option>
+    <option value="skin3">Skin 3 (sisi kabin + belakang, 2048×2048)</option>
+    <option value="whole">Seluruh gambar = 1 panel</option>
+    <option value="custom">Custom (isi sendiri)</option>
+  </select>
+  <div id="customBox" style="display:none">
+    <div class="row">
+      <div><label>x awal</label><input type="number" id="cx0" value="0"></div>
+      <div><label>y awal</label><input type="number" id="cy0" value="0"></div>
+      <div><label>x akhir</label><input type="number" id="cx1" value="2048"></div>
+      <div><label>y akhir</label><input type="number" id="cy1" value="475"></div>
+    </div>
+    <button id="applyCustom" style="margin-top:8px;width:100%">Pakai panel custom</button>
+  </div>
+  <div id="presetWarn" class="warn"></div>
+</div>
+
+<div class="card">
+  <h2>2. Grid dan zoom</h2>
+  <div class="row">
+    <div><label>Garis grid tiap</label>
+      <select id="step"><option value="1">1%</option><option value="2" selected>2%</option><option value="5">5%</option><option value="10">10%</option></select>
+    </div>
+    <div><label>Zoom: <span id="zoomv">100</span>%</label><input type="range" id="zoom" min="50" max="800" value="100" step="10"></div>
+  </div>
+  <label class="chk"><input type="checkbox" id="showGrid" checked> Tampilkan grid</label>
+  <label class="chk"><input type="checkbox" id="showV"> Tampilkan garis vertikal (tiap 10%)</label>
+  <div id="stage"><div id="wrap"><canvas id="cv" width="10" height="10"></canvas><canvas id="ov" width="10" height="10"></canvas></div></div>
+  <div id="readout">Ketuk gambar untuk baca posisi (px dan %).</div>
+  <div class="hint">Persen dihitung dari tinggi panel masing-masing (0% = tepi atas panel, 100% = tepi bawah). Garis hijau = garis putih sekarang. Garis kuning putus-putus = target.</div>
+</div>
+
+<div id="panels"></div>
+
+<div class="card">
+  <h2>4. Simpan</h2>
+  <div class="row">
+    <button id="undo" disabled>Urungkan</button>
+    <button id="save" class="pri" disabled>Unduh JPG</button>
+  </div>
+  <label class="chk"><input type="checkbox" id="withGrid"> Sertakan grid dan garis bantu di file unduhan (hanya untuk dokumentasi, jangan dipasang ke Trainz)</label>
+  <label>Kualitas JPG: <span id="qv">97</span></label>
+  <input type="range" id="q" min="80" max="100" value="97">
+</div>
+
+<div class="card" id="outBox" style="display:none">
+  <h2>Hasil siap disimpan</h2>
+  <p class="hint" style="margin-top:0" id="outHint">Kalau unduhan otomatis tidak jalan: <b>tekan lama gambar di bawah</b>, lalu pilih "Download image" / "Simpan gambar". Atau pakai tombol Bagikan lalu pilih Simpan ke File.</p>
+  <div class="row"><button id="shareBtn" class="pri">Bagikan / Simpan</button><button id="openBtn">Buka gambar di tab baru</button></div>
+  <img id="outImg" alt="hasil" style="width:100%;margin-top:8px;border-radius:6px;border:1px solid var(--line)">
+</div>
+
+<div class="card">
+  <h2>Tekstur kalibrasi</h2>
+  <p class="hint" style="margin-top:0">Buat gambar grid kosong sesuai tata letak di atas. Pasang di Trainz, screenshot sambungan kabin dan mesin, lalu baca angka persen yang sejajar.</p>
+  <div class="row">
+    <div><label>Lebar</label><input type="number" id="calW" value="2048"></div>
+    <div><label>Tinggi</label><input type="number" id="calH" value="2048"></div>
+  </div>
+  <button id="cal" style="width:100%;margin-top:8px">Unduh tekstur kalibrasi</button>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const src = document.createElement('canvas');
+const sctx = src.getContext('2d', {willReadFrequently:true});
+let hasImg = false, fileName = 'skin';
+let panels = [];          // {n,x0,y0,x1,y1,det,tt,tb}
+let cross = null;         // {x,y}
+const history = [];
+
+const PRESETS = {
+  atlas2048:{size:[2048,2048],panels:[
+    {n:'Panel atas (stripe di atas)',x0:0,y0:0,x1:2048,y1:475},
+    {n:'Panel bawah (stripe di bawah)',x0:0,y0:903,x1:2048,y1:1378}]},
+  skin3:{size:[2048,2048],panels:[
+    {n:'Sisi kabin (separuh atas)',x0:0,y0:0,x1:2048,y1:1024},
+    {n:'Belakang (kanan-bawah)',x0:1024,y0:1024,x1:2048,y1:2048}]}
+};
+
+function setPanels(list){
+  panels = list.map(p => ({...p, det:null, tt:'', tb:''}));
+  detectAll(); renderPanels(); draw();
+}
+
+function currentPreset(){
+  const k = $('preset').value;
+  $('customBox').style.display = k==='custom' ? 'block' : 'none';
+  $('presetWarn').textContent = '';
+  if(k==='whole'){
+    if(!hasImg) return [];
+    return [{n:'Seluruh gambar',x0:0,y0:0,x1:src.width,y1:src.height}];
+  }
+  if(k==='custom'){
+    const x0=+$('cx0').value,y0=+$('cy0').value,x1=+$('cx1').value,y1=+$('cy1').value;
+    if(hasImg && x1>x0 && y1>y0 && x1<=src.width && y1<=src.height) return [{n:'Panel custom',x0,y0,x1,y1}];
+    if(hasImg) $('presetWarn').textContent = 'Angka panel custom di luar ukuran gambar.';
+    return [];
+  }
+  const pr = PRESETS[k];
+  if(hasImg && (src.width!==pr.size[0] || src.height!==pr.size[1])){
+    $('presetWarn').textContent = 'Ukuran gambar ('+src.width+'×'+src.height+') beda dari tata letak ini ('+pr.size[0]+'×'+pr.size[1]+'). Pilih "Seluruh gambar" atau "Custom".';
+    return [];
+  }
+  return pr.panels;
+}
+
+function detect(p){
+  const w=p.x1-p.x0, h=p.y1-p.y0;
+  const d = sctx.getImageData(p.x0,p.y0,w,h).data;
+  const frac = new Float32Array(h), per=Math.ceil(w/2);
+  for(let y=0;y<h;y++){
+    let c=0;
+    for(let x=0;x<w;x+=2){
+      const i=(y*w+x)*4, r=d[i], g=d[i+1], b=d[i+2];
+      const mx=Math.max(r,g,b), mn=Math.min(r,g,b);
+      if(mn>205 && mx-mn<40) c++;
+    }
+    frac[y]=c/per;
+  }
+  let best=null,start=-1,last=-1;
+  for(let y=0;y<=h;y++){
+    const on = y<h && frac[y]>0.45;
+    if(on){ if(start<0) start=y; last=y; }
+    else if(start>=0 && (y===h || y-last>2)){
+      if(!best || last-start > best[1]-best[0]) best=[start,last];
+      start=-1;
+    }
+  }
+  return best ? {top:best[0], bot:best[1]+1} : null;
+}
+
+function detectAll(){
+  if(!hasImg) return;
+  panels.forEach(p => { p.det = detect(p); });
+}
+
+const pct = (px,p) => px/(p.y1-p.y0)*100;
+const f1 = v => (Math.round(v*10)/10).toFixed(1);
+
+function renderPanels(){
+  const box = $('panels'); box.innerHTML='';
+  if(!hasImg){ return; }
+  if(!panels.length){ box.innerHTML='<div class="card"><div class="warn">Belum ada panel yang cocok. Cek tata letak di langkah 1.</div></div>'; return; }
+  panels.forEach((p,i)=>{
+    const c = document.createElement('div'); c.className='card';
+    const ph = p.y1-p.y0;
+    let info;
+    if(p.det){
+      info = 'Garis putih sekarang: <b>'+f1(pct(p.det.top,p))+'% – '+f1(pct(p.det.bot,p))+'%</b> (y '+(p.y0+p.det.top)+'–'+(p.y0+p.det.bot)+' px, tebal '+f1(pct(p.det.bot-p.det.top,p))+'%)';
+    } else info = '<span class="warn">Garis putih tidak terdeteksi di panel ini.</span>';
+    c.innerHTML =
+      '<h2>3.'+(i+1)+' '+p.n+'</h2><div class="det">'+info+'</div>'+
+      '<div class="row"><div><label>Target atas (%)</label><input type="number" step="0.1" min="0" max="100" id="tt'+i+'" value="'+p.tt+'"></div>'+
+      '<div><label>Target bawah (%)</label><input type="number" step="0.1" min="0" max="100" id="tb'+i+'" value="'+p.tb+'"></div></div>'+
+      '<div class="nudge"><button data-n="'+i+'" data-d="-1">▲ 1%</button><button data-n="'+i+'" data-d="-0.1">▲ 0.1%</button><button data-n="'+i+'" data-d="0.1">▼ 0.1%</button><button data-n="'+i+'" data-d="1">▼ 1%</button></div>'+
+      '<div class="row" style="margin-top:8px"><button data-fill="'+i+'">Isi target = sekarang</button><button class="pri" data-apply="'+i+'">Terapkan</button></div>'+
+      '<div class="edge"><label>Batas panel (px) — samakan dengan tepi gambar di layar</label>'+
+      '<div class="row"><div><label>Tepi atas (y)</label><input type="number" step="1" id="ey0'+i+'" value="'+p.y0+'"></div>'+
+      '<div><label>Tepi bawah (y)</label><input type="number" step="1" id="ey1'+i+'" value="'+p.y1+'"></div></div>'+
+      '<div class="nudge"><button data-e="'+i+'" data-w="0" data-d="-5">Atas −5</button><button data-e="'+i+'" data-w="0" data-d="-1">Atas −1</button><button data-e="'+i+'" data-w="0" data-d="1">Atas +1</button><button data-e="'+i+'" data-w="0" data-d="5">Atas +5</button></div>'+
+      '<div class="nudge"><button data-e="'+i+'" data-w="1" data-d="-5">Bawah −5</button><button data-e="'+i+'" data-w="1" data-d="-1">Bawah −1</button><button data-e="'+i+'" data-w="1" data-d="1">Bawah +1</button><button data-e="'+i+'" data-w="1" data-d="5">Bawah +5</button></div></div>'+
+      '<div class="hint">Tombol panah menggeser target (atas dan bawah bersama), garis putih tetap setebal sekarang kecuali kamu ubah angkanya sendiri. Tinggi panel '+ph+' px.</div>';
+    box.appendChild(c);
+    c.querySelectorAll('input').forEach(inp => inp.addEventListener('input', ()=>{ readTargets(i); draw(); }));
+  });
+  box.querySelectorAll('button[data-e]').forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.e, p=panels[i];
+    setEdges(i, p.y0+(b.dataset.w==='0'?+b.dataset.d:0), p.y1+(b.dataset.w==='1'?+b.dataset.d:0));
+  });
+  panels.forEach((p,i)=>{
+    $('ey0'+i).addEventListener('change',()=>setEdges(i,parseInt($('ey0'+i).value),parseInt($('ey1'+i).value)));
+    $('ey1'+i).addEventListener('change',()=>setEdges(i,parseInt($('ey0'+i).value),parseInt($('ey1'+i).value)));
+  });
+  box.querySelectorAll('button[data-n]').forEach(b=>b.onclick=()=>nudge(+b.dataset.n,+b.dataset.d));
+  box.querySelectorAll('button[data-fill]').forEach(b=>b.onclick=()=>fillTarget(+b.dataset.fill));
+  box.querySelectorAll('button[data-apply]').forEach(b=>b.onclick=()=>applyPanel(+b.dataset.apply));
+}
+
+function setEdges(i,y0,y1){
+  const p=panels[i];
+  if(isNaN(y0)||isNaN(y1)||y0<0||y1>src.height||y1-y0<20){ renderPanels(); return; }
+  p.y0=y0; p.y1=y1; p.tt=''; p.tb='';
+  p.det=detect(p);
+  renderPanels(); draw();
+  const sy=$('stage'); const sc=$('wrap').clientWidth/src.width;
+  sy.scrollTop=Math.max(0,y0*sc-60);
+}
+function readTargets(i){
+  panels[i].tt = $('tt'+i).value; panels[i].tb = $('tb'+i).value;
+}
+function fillTarget(i){
+  const p=panels[i]; if(!p.det) return;
+  p.tt=f1(pct(p.det.top,p)); p.tb=f1(pct(p.det.bot,p));
+  $('tt'+i).value=p.tt; $('tb'+i).value=p.tb; draw();
+}
+function nudge(i,d){
+  const p=panels[i];
+  if((p.tt===''||p.tb==='') && p.det){ p.tt=f1(pct(p.det.top,p)); p.tb=f1(pct(p.det.bot,p)); }
+  if(p.tt===''||p.tb==='') return;
+  p.tt=f1(+p.tt+d); p.tb=f1(+p.tb+d);
+  $('tt'+i).value=p.tt; $('tb'+i).value=p.tb; draw();
+}
+
+function pushHistory(){
+  const c=document.createElement('canvas'); c.width=src.width; c.height=src.height;
+  c.getContext('2d').drawImage(src,0,0);
+  history.push(c); if(history.length>6) history.shift();
+  $('undo').disabled=false;
+}
+
+function applyPanel(i){
+  const p=panels[i];
+  if(!p.det){ alert('Garis putih belum terdeteksi di panel ini.'); return; }
+  const tt=parseFloat(p.tt), tb=parseFloat(p.tb);
+  const h=p.y1-p.y0;
+  if(isNaN(tt)||isNaN(tb)||tt<0||tb>100||tb-tt<=0.2){ alert('Isi target atas dan bawah dengan benar (atas < bawah, antara 0 dan 100).'); return; }
+  const sTop=p.det.top, sBot=p.det.bot;
+  const tTop=tt/100*h, tBot=tb/100*h;
+  if(tTop<1 || tBot>h-1){ alert('Target terlalu mepet tepi panel. Beri jarak minimal 1 px.'); return; }
+  pushHistory();
+  const w=p.x1-p.x0;
+  const s = sctx.getImageData(p.x0,p.y0,w,h).data;
+  const out = sctx.createImageData(w,h), o=out.data;
+  for(let y=0;y<h;y++){
+    const yy=y+0.5; let sy;
+    if(yy<=tTop) sy = yy*sTop/tTop;
+    else if(yy<=tBot) sy = sTop + (yy-tTop)*(sBot-sTop)/(tBot-tTop);
+    else sy = sBot + (yy-tBot)*(h-sBot)/(h-tBot);
+    sy -= 0.5;
+    let y0, f;
+    if(sy<=0){ y0=0; f=0; }
+    else if(sy>=h-1){ y0=h-1; f=0; }
+    else { y0=Math.floor(sy); f=sy-y0; }
+    const y1=Math.min(h-1,y0+1);
+    for(let x=0;x<w;x++){
+      const a=(y0*w+x)*4, b=(y1*w+x)*4, k=(y*w+x)*4;
+      o[k]=s[a]*(1-f)+s[b]*f; o[k+1]=s[a+1]*(1-f)+s[b+1]*f; o[k+2]=s[a+2]*(1-f)+s[b+2]*f; o[k+3]=255;
+    }
+  }
+  sctx.putImageData(out,p.x0,p.y0);
+  panels.forEach(q=>q.det=detect(q));
+  fillTarget(i);
+  renderPanels(); draw();
+}
+
+// ---------- tampilan ----------
+const cv=$('cv'), ov=$('ov');
+function layout(){
+  if(!hasImg) return;
+  const base=$('stage').clientWidth-2;
+  const cssW = Math.round(base*($('zoom').value/100));
+  $('wrap').style.width = cssW+'px';
+  cv.width=src.width; cv.height=src.height;
+  ov.width=src.width; ov.height=src.height;
+  ov.style.width='100%'; ov.style.height='100%';
+  cv.getContext('2d').drawImage(src,0,0);
+  draw();
+}
+function redrawBase(){ if(hasImg){ cv.getContext('2d').drawImage(src,0,0); } }
+
+function draw(){
+  if(!hasImg) return;
+  redrawBase();
+  const g=ov.getContext('2d');
+  g.clearRect(0,0,ov.width,ov.height);
+  paintOverlay(g,$('wrap').clientWidth/src.width,true);
+}
+
+function paintOverlay(g,sc,withCross){
+  const step=+$('step').value;
+  const showGrid=$('showGrid').checked, showV=$('showV').checked;
+  const fs = 12/sc;
+  g.font='bold '+fs+'px system-ui,sans-serif'; g.textBaseline='top';
+  const palette=['#ff5d5d','#ffa31a','#ffe14d','#4bd96a','#27d3f0','#6c8cff','#ff6bf0','#ff8f8f','#ffc766','#c3f05a'];
+  panels.forEach(p=>{
+    const w=p.x1-p.x0, h=p.y1-p.y0;
+    g.save(); g.beginPath(); g.rect(p.x0,p.y0,w,h); g.clip();
+    if(showGrid){
+      const ppp = h*sc/100*step;       // px layar per langkah
+      for(let i=0;i<=100.0001;i+=step){
+        const y=p.y0+h*i/100, major=Math.abs(i/10-Math.round(i/10))<1e-6;
+        const col = major ? palette[Math.round(i/10)%10] : 'rgba(255,255,255,.55)';
+        g.strokeStyle=col; g.lineWidth=(major?2.2:1)/sc;
+        g.beginPath(); g.moveTo(p.x0,y); g.lineTo(p.x1,y); g.stroke();
+        if(ppp>=13 || major){
+          const txt=(Math.round(i*10)/10)+'%';
+          g.fillStyle=col; g.strokeStyle='rgba(0,0,0,.85)'; g.lineWidth=3/sc;
+          const ty = i>=100 ? y-fs-2/sc : y+2/sc;
+          for(const fx of [0.02,0.5,0.9]){
+            const tx=p.x0+w*fx; g.strokeText(txt,tx,ty); g.fillText(txt,tx,ty);
+          }
+        }
+      }
+    }
+    if(showV){
+      g.strokeStyle='rgba(255,255,255,.45)'; g.lineWidth=1/sc;
+      for(let j=0;j<=100;j+=10){
+        const x=p.x0+w*j/100; g.beginPath(); g.moveTo(x,p.y0); g.lineTo(x,p.y1); g.stroke();
+      }
+    }
+    // garis putih terdeteksi
+    if(p.det){
+      g.strokeStyle='#38d27a'; g.lineWidth=2.5/sc; g.setLineDash([]);
+      [p.det.top,p.det.bot].forEach(v=>{ const y=p.y0+v; g.beginPath(); g.moveTo(p.x0,y); g.lineTo(p.x1,y); g.stroke(); });
+    }
+    // target
+    const tt=parseFloat(p.tt), tb=parseFloat(p.tb);
+    if(!isNaN(tt)&&!isNaN(tb)){
+      g.strokeStyle='#f2b01e'; g.lineWidth=2.5/sc; g.setLineDash([10/sc,6/sc]);
+      [tt,tb].forEach(v=>{ const y=p.y0+h*v/100; g.beginPath(); g.moveTo(p.x0,y); g.lineTo(p.x1,y); g.stroke(); });
+      g.setLineDash([]);
+    }
+    g.restore();
+    g.strokeStyle='#00e5ff'; g.lineWidth=3/sc; g.setLineDash([]);
+    [p.y0,p.y1].forEach(y=>{ g.beginPath(); g.moveTo(p.x0,y); g.lineTo(p.x1,y); g.stroke(); });
+    g.fillStyle='#00e5ff'; g.strokeStyle='rgba(0,0,0,.9)'; g.lineWidth=3/sc;
+    g.strokeText('tepi atas y='+p.y0,p.x0+6/sc,p.y0-fs-4/sc); g.fillText('tepi atas y='+p.y0,p.x0+6/sc,p.y0-fs-4/sc);
+    g.strokeText('tepi bawah y='+p.y1,p.x0+6/sc,p.y1+4/sc); g.fillText('tepi bawah y='+p.y1,p.x0+6/sc,p.y1+4/sc);
+  });
+  if(withCross && cross){
+    g.strokeStyle='#ffffff'; g.lineWidth=1.5/sc; g.setLineDash([6/sc,4/sc]);
+    g.beginPath(); g.moveTo(0,cross.y); g.lineTo(src.width,cross.y); g.stroke();
+    g.beginPath(); g.moveTo(cross.x,0); g.lineTo(cross.x,src.height); g.stroke();
+    g.setLineDash([]);
+  }
+}
+
+$('wrap').addEventListener('click', e=>{
+  if(!hasImg) return;
+  const r=$('wrap').getBoundingClientRect(), sc=r.width/src.width;
+  const x=(e.clientX-r.left)/sc, y=(e.clientY-r.top)/sc;
+  cross={x,y};
+  const p=panels.find(q=>x>=q.x0&&x<q.x1&&y>=q.y0&&y<q.y1);
+  $('readout').textContent = 'x '+Math.round(x)+', y '+Math.round(y)+' px' + (p ? '  |  '+p.n+': '+f1(pct(y-p.y0,p))+'% dari atas' : '  |  di luar panel');
+  draw();
+});
+
+// ---------- kontrol ----------
+$('file').addEventListener('change', e=>{
+  const f=e.target.files[0]; if(!f) return;
+  fileName=f.name.replace(/\.[^.]+$/,'');
+  const img=new Image();
+  img.onload=()=>{
+    src.width=img.naturalWidth; src.height=img.naturalHeight;
+    sctx.drawImage(img,0,0); hasImg=true; history.length=0; $('undo').disabled=true;
+    $('save').disabled=false; $('calW').value=src.width; $('calH').value=src.height;
+    $('cx1').value=src.width; $('cy1').value=Math.min(475,src.height);
+    // pilih preset otomatis kalau ukurannya 2048x2048
+    if(src.width!==2048||src.height!==2048) $('preset').value='whole';
+    else {
+      // atlas skin 2: area tengah (y 500-880) abu-abu polos. skin 3: area itu merah.
+      const d=sctx.getImageData(0,500,2048,380).data; let sat=0,n=0;
+      for(let i=0;i<d.length;i+=64){ sat+=Math.max(d[i],d[i+1],d[i+2])-Math.min(d[i],d[i+1],d[i+2]); n++; }
+      $('preset').value = (sat/n<45) ? 'atlas2048' : 'skin3';
+    }
+    setPanels(currentPreset()); layout();
+    URL.revokeObjectURL(img.src);
+  };
+  img.onerror=()=>alert('Gambar tidak bisa dibuka.');
+  img.src=URL.createObjectURL(f);
+});
+$('preset').addEventListener('change', ()=>{ setPanels(currentPreset()); layout(); });
+$('applyCustom').addEventListener('click', ()=>{ setPanels(currentPreset()); layout(); });
+$('step').addEventListener('change',draw);
+$('showGrid').addEventListener('change',draw);
+$('showV').addEventListener('change',draw);
+$('zoom').addEventListener('input',()=>{ $('zoomv').textContent=$('zoom').value; layout(); });
+$('q').addEventListener('input',()=>{ $('qv').textContent=$('q').value; });
+window.addEventListener('resize',layout);
+
+$('undo').addEventListener('click',()=>{
+  const c=history.pop(); if(!c) return;
+  sctx.clearRect(0,0,src.width,src.height); sctx.drawImage(c,0,0);
+  if(!history.length) $('undo').disabled=true;
+  detectAll(); renderPanels(); draw();
+});
+
+let lastBlob=null,lastName='';
+function download(canvas,name,q){
+  canvas.toBlob(b=>{
+    if(!b){ alert('Gagal membuat file JPG.'); return; }
+    lastBlob=b; lastName=name;
+    const url=URL.createObjectURL(b);
+    $('outImg').src=url; $('outBox').style.display='block';
+    $('openBtn').onclick=()=>{ window.open(url,'_blank'); };
+    try{
+      const a=document.createElement('a'); a.href=url; a.download=name;
+      document.body.appendChild(a); a.click(); a.remove();
+    }catch(e){}
+    $('outBox').scrollIntoView({behavior:'smooth'});
+  },'image/jpeg',q);
+}
+$('shareBtn').addEventListener('click', async ()=>{
+  if(!lastBlob) return;
+  const file=new File([lastBlob],lastName,{type:'image/jpeg'});
+  try{
+    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:lastName}); }
+    else alert('Browser ini tidak mendukung Bagikan. Tekan lama gambar lalu pilih Simpan gambar.');
+  }catch(e){ /* dibatalkan */ }
+});
+$('save').addEventListener('click',()=>{
+  if(!hasImg) return;
+  if($('withGrid').checked){
+    const c=document.createElement('canvas'); c.width=src.width; c.height=src.height;
+    const g=c.getContext('2d'); g.drawImage(src,0,0);
+    paintOverlay(g,0.6,false);
+    download(c, fileName+'_grid.jpg', $('q').value/100);
+  } else download(src, fileName+'_fix.jpg', $('q').value/100);
+});
+
+// ---------- tekstur kalibrasi ----------
+$('cal').addEventListener('click',()=>{
+  const W=Math.max(64,parseInt($('calW').value)||2048), H=Math.max(64,parseInt($('calH').value)||2048);
+  let list;
+  const k=$('preset').value;
+  if(k==='atlas2048'||k==='skin3'){ list=(W===2048&&H===2048)?PRESETS[k].panels:[{n:'Seluruh gambar',x0:0,y0:0,x1:W,y1:H}]; }
+  else if(panels.length && hasImg && W===src.width && H===src.height) list=panels;
+  else list=[{n:'Seluruh gambar',x0:0,y0:0,x1:W,y1:H}];
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const g=c.getContext('2d');
+  g.fillStyle='#ced4d8'; g.fillRect(0,0,W,H);
+  const palette=['#ff3c3c','#ffaa00','#ffff00','#3cff3c','#00dcff','#5a78ff','#ff50ff','#ff7878','#ffc850','#c8ff50'];
+  g.textBaseline='top';
+  list.forEach(p=>{
+    const w=p.x1-p.x0, h=p.y1-p.y0;
+    g.fillStyle='#505050'; g.fillRect(p.x0,p.y0,w,h);
+    const fs=Math.max(12,Math.min(22,Math.round(h/32))), fm=Math.round(fs*1.3);
+    for(let i=0;i<=100;i+=2){
+      const y=Math.min(p.y0+Math.round(h*i/100),p.y1-1), major=i%10===0;
+      const col=major?palette[(i/10)%10]:'#d7d7d7';
+      g.strokeStyle=col; g.lineWidth=major?3:1;
+      g.beginPath(); g.moveTo(p.x0,y+0.5); g.lineTo(p.x1,y+0.5); g.stroke();
+      g.lineJoin='round'; g.strokeStyle='#000';
+      if(major){
+        g.font='bold '+fm+'px sans-serif'; g.fillStyle=col; g.lineWidth=4;
+        for(let x=p.x0+w*0.025;x<p.x1-70;x+=w/5){ const ty=i>=100?y-fm-2:y+2; g.strokeText(i+'%',x,ty); g.fillText(i+'%',x,ty); }
+      } else {
+        g.font='bold '+fs+'px sans-serif'; g.fillStyle=col; g.lineWidth=3;
+        const kk=(i/2)%5, ty=i>=100?y-fs-2:y+1;
+        for(let rep=0;rep<4;rep++){ const x=p.x0+40+rep*(w/4)+kk*(w/20); g.strokeText(i+'%',x,ty); g.fillText(i+'%',x,ty); }
+      }
+    }
+    g.strokeStyle='#fff'; g.lineWidth=2;
+    g.font='bold '+fm+'px sans-serif'; g.fillStyle='#fff';
+    for(let j=0;j<=100;j+=10){
+      const x=Math.min(p.x0+Math.round(w*j/100),p.x1-1);
+      g.beginPath(); g.moveTo(x+0.5,p.y0); g.lineTo(x+0.5,p.y1); g.stroke();
+      g.lineWidth=4; g.strokeStyle='#000'; g.strokeText('X'+j,x+4,p.y0+h/2-fm/2); g.fillText('X'+j,x+4,p.y0+h/2-fm/2);
+      g.strokeStyle='#fff'; g.lineWidth=2;
+    }
+    g.font='bold '+Math.round(fm*1.8)+'px sans-serif'; g.lineWidth=5; g.strokeStyle='#000';
+    g.strokeText(p.n,p.x0+w/2-g.measureText(p.n).width/2,p.y0+h/2-fm*3.2); g.fillText(p.n,p.x0+w/2-g.measureText(p.n).width/2,p.y0+h/2-fm*3.2);
+  });
+  download(c,'kalibrasi_'+W+'x'+H+'.jpg',0.97);
+});
+</script>
+</body>
+</html>
